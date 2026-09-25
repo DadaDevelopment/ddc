@@ -66,7 +66,8 @@ cd my-agent-repo
 ddc agent spec       # what the manifest resolves to - run this when a layout looks wrong
 ddc agent up         # start the agent from the spec
 ddc agent smoke      # one real A2A turn, exit 1 on silence
-ddc agent eval       # run the repo's eval suites against it
+ddc agent eval       # run every eval suite against it (--suite <name> for one)
+ddc agent invoke --text "привет"   # one message to the deployed agent, prints the reply
 ddc agent deploy --project <name> --env <name>   # asked once, then remembered
 ddc agent logs -f
 ddc agent down
@@ -102,24 +103,41 @@ production, tracing patch included. The rendered config is copied
 into the container rather than bind-mounted, so a remote or docker-in-docker
 daemon works the same. `up` returns only once the agent answers `/health`.
 
-## Langfuse naming contract
+## Exit codes
 
-Several layers score the same agent into one project, so they must not average
-into one meaningless number:
+Every `ddc agent` action follows one contract, so a pipeline can tell a failing
+agent from a broken invocation:
 
 ```
-environment   local | ci | production
-score name    suite.*     marker assertions from the eval suites
-              turn.*      the runtime turn judge
-              funnel.*    the funnel judge
-dataset       <dataset_prefix>-<suite>
-run_name      ci-<run_id>                    always unique
+0   pass
+1   fail       an eval gate missed, a smoke turn was silent, invoke got no reply
+2   config     unknown flag or action, missing suite or runner, no local agent,
+               or the eval runner itself exited 2 (argparse, bad arguments)
 ```
 
-`run_name` must be unique per run: deleting dataset runs is eventually
-consistent, and runs sharing a name appear merged for a while. A managed
-evaluator should filter `environment = production`, or it burns quota scoring
-CI traces.
+## Eval reports
 
-The eval runner, the dataset sync and the dashboard live in the agent repo,
-next to the cases and the judge they belong to.
+Evals are report-only: nothing is sent to Langfuse, because eval traffic is
+synthetic and must not spend the observability quota. `ddc agent eval` runs
+`scripts/eval_run.py` from the agent repo once per suite in
+`agents/<name>/evals/suites/*.yaml` and writes each into its own directory:
+
+```
+eval-artifacts/<suite>/
+  report.json     the whole run: pass_rate, passed/total, lost turns, per-scenario
+                  results and top failures, label, transport, git sha and CI run url
+  summary.md      the same as a markdown table; also appended to
+                  $GITHUB_STEP_SUMMARY when set
+  history.jsonl   one line per finished run (report.json without scenarios),
+                  appended, so a kept directory shows the trend over time
+  transcripts/    the raw turns, re-scorable with --from-transcripts
+```
+
+With `--suite <name>` a single suite runs and the runner's own `--output-dir`
+is used as is. Runner flags go through `DDC_EVAL_ARGS`, for example
+`DDC_EVAL_ARGS="--label ci --fail-below 0.8 --repeats 3"`; an `--output-dir`
+there becomes the parent of the per-suite directories. The exit code is the
+worst suite: 2 if any runner exited 2, else 1 if any missed `--fail-below`.
+
+The eval runner, its cases and the judge live in the agent repo, next to the
+agent they belong to.
