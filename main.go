@@ -36,6 +36,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  deploy           ship this repo's agent to the platform")
 	fmt.Fprintln(os.Stderr, "  eval             run the eval suites against a local agent")
 	fmt.Fprintln(os.Stderr, "  smoke            send one real turn, exit 1 on silence")
+	fmt.Fprintln(os.Stderr, "  invoke           send --text to the deployed agent, print its reply")
 	fmt.Fprintln(os.Stderr, "  logs             stream the agent's logs")
 	fmt.Fprintln(os.Stderr, "  down             stop the agent")
 	fmt.Fprintln(os.Stderr, "")
@@ -48,7 +49,10 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  --project <name>    deploy target, asked once then remembered")
 	fmt.Fprintln(os.Stderr, "  --env <name>        deploy target environment")
 	fmt.Fprintln(os.Stderr, "  --suite <name>      eval suite to run (default: every suite)")
+	fmt.Fprintln(os.Stderr, "  --text <message>    message for smoke or invoke")
 	fmt.Fprintln(os.Stderr, "  --dry-run           show what deploy would send, send nothing")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "exit codes: 0 pass, 1 fail, 2 config or usage error")
 }
 
 func main() {
@@ -81,7 +85,7 @@ func main() {
 	case "agent":
 		if err := runAgent(ctx, cfg, os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
+			os.Exit(cliapp.ExitCode(err))
 		}
 	case "-h", "--help", "help":
 		usage()
@@ -124,7 +128,7 @@ func parseDeployArgs(args []string) (cliapp.DeployOptions, error) {
 }
 
 func agentUsage() {
-	fmt.Fprintln(os.Stderr, "usage: ddc agent <spec|up|smoke|eval|deploy|logs|down> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: ddc agent <spec|up|smoke|eval|invoke|deploy|logs|down> [flags]")
 }
 
 func runAgent(ctx context.Context, cfg cliapp.Config, args []string, out io.Writer) error {
@@ -136,14 +140,17 @@ func runAgent(ctx context.Context, cfg cliapp.Config, args []string, out io.Writ
 	opts := cliapp.AgentOptions{
 		Repo: ".", Port: 18081, Text: "Привет", Tail: "200", Timeout: 180 * time.Second,
 	}
-	if action == "deploy" {
+	switch action {
+	case "deploy":
 		opts.Timeout = 10 * time.Minute
+	case "invoke":
+		opts.Text = ""
 	}
 	rest := args[1:]
 	for i := 0; i < len(rest); {
 		needsValue := func() (string, error) {
 			if i+1 >= len(rest) {
-				return "", fmt.Errorf("%s requires a value", rest[i])
+				return "", cliapp.ConfigErrorf("%s requires a value", rest[i])
 			}
 			return rest[i+1], nil
 		}
@@ -166,7 +173,7 @@ func runAgent(ctx context.Context, cfg cliapp.Config, args []string, out io.Writ
 			case "--port":
 				port, err := strconv.Atoi(value)
 				if err != nil {
-					return fmt.Errorf("--port: %w", err)
+					return cliapp.ConfigErrorf("--port: %w", err)
 				}
 				opts.Port = port
 			case "--text":
@@ -182,7 +189,7 @@ func runAgent(ctx context.Context, cfg cliapp.Config, args []string, out io.Writ
 			case "--timeout":
 				seconds, err := strconv.Atoi(value)
 				if err != nil {
-					return fmt.Errorf("--timeout: %w", err)
+					return cliapp.ConfigErrorf("--timeout: %w", err)
 				}
 				opts.Timeout = time.Duration(seconds) * time.Second
 			}
@@ -194,7 +201,7 @@ func runAgent(ctx context.Context, cfg cliapp.Config, args []string, out io.Writ
 			opts.DryRun = true
 			i++
 		default:
-			return fmt.Errorf("unknown flag %q", rest[i])
+			return cliapp.ConfigErrorf("unknown flag %q", rest[i])
 		}
 	}
 
@@ -209,12 +216,14 @@ func runAgent(ctx context.Context, cfg cliapp.Config, args []string, out io.Writ
 		return cliapp.AgentEval(ctx, cfg, opts, out)
 	case "smoke":
 		return cliapp.AgentSmoke(opts, out)
+	case "invoke":
+		return cliapp.AgentInvoke(ctx, cfg, opts, out)
 	case "logs":
 		return cliapp.AgentLogs(opts, out)
 	case "down":
 		return cliapp.AgentDown(opts, out)
 	default:
 		agentUsage()
-		return fmt.Errorf("unknown agent action %q", action)
+		return cliapp.ConfigErrorf("unknown agent action %q", action)
 	}
 }

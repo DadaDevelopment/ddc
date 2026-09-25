@@ -241,3 +241,18 @@ func (c *Client) WaitOperation(ctx context.Context, projectID, operationID strin
 	}
 	return Operation{}, fmt.Errorf("operation %s did not finish within %s (last status %q)", operationID, limit, last)
 }
+
+func (c *Client) SendAgentMessage(ctx context.Context, name, text string) (string, error) {
+	body, err := json.Marshal(map[string]string{"text": text})
+	if err != nil {
+		return "", err
+	}
+	var payload struct {
+		Reply string `json:"reply"`
+	}
+	path := "/agents/" + url.PathEscape(name) + "/message"
+	if err := c.doJSON(ctx, "POST", path, bytes.NewReader(body), "application/json", &payload); err != nil {
+		return "", err
+	}
+	return payload.Reply, nil
+}
