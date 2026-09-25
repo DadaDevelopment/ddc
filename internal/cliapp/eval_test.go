@@ -15,13 +15,13 @@ func TestExtraEvalArgs(t *testing.T) {
 	}{
 		{"empty", "", nil},
 		{"blank", "   \n  ", nil},
-		{"plain", "--environment ci --fail-below 0.1",
-			[]string{"--environment", "ci", "--fail-below", "0.1"}},
-		{"quoted value", `--label "nightly run" --environment ci`,
-			[]string{"--label", "nightly run", "--environment", "ci"}},
+		{"plain", "--label ci --fail-below 0.1",
+			[]string{"--label", "ci", "--fail-below", "0.1"}},
+		{"quoted value", `--label "nightly run" --transport a2a`,
+			[]string{"--label", "nightly run", "--transport", "a2a"}},
 		{"single quotes", `--run-name 'ci-42'`, []string{"--run-name", "ci-42"}},
-		{"folded whitespace", "--environment ci\n  --label x\t--max-concurrency 3",
-			[]string{"--environment", "ci", "--label", "x", "--max-concurrency", "3"}},
+		{"folded whitespace", "--transport a2a\n  --label x\t--max-concurrency 3",
+			[]string{"--transport", "a2a", "--label", "x", "--max-concurrency", "3"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

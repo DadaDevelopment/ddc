@@ -2,6 +2,7 @@ package cliapp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -58,6 +59,25 @@ func extraEvalArgs() []string {
 	return args
 }
 
+const defaultEvalOutputDir = "eval-artifacts"
+
+func suiteOutputArgs(extra []string, suite string) []string {
+	base := defaultEvalOutputDir
+	kept := make([]string, 0, len(extra))
+	for i := 0; i < len(extra); i++ {
+		switch {
+		case extra[i] == "--output-dir" && i+1 < len(extra):
+			base = extra[i+1]
+			i++
+		case strings.HasPrefix(extra[i], "--output-dir="):
+			base = strings.TrimPrefix(extra[i], "--output-dir=")
+		default:
+			kept = append(kept, extra[i])
+		}
+	}
+	return append(kept, "--output-dir", filepath.Join(base, suite))
+}
+
 // AgentEval runs the repo's eval suites against a locally running agent.
 //
 // It is the same command in CI and on a laptop, for the same reason `ddc agent
@@ -66,16 +86,31 @@ func extraEvalArgs() []string {
 func AgentEval(ctx context.Context, cfg Config, opts AgentOptions, out io.Writer) error {
 	spec, err := loadSpec(opts)
 	if err != nil {
-		return err
+		return ConfigError(err)
 	}
 	loadStateEnv(spec.Repo)
 
 	runner := filepath.Join(spec.Repo, evalEntrypoint)
 	if _, err := os.Stat(runner); err != nil {
-		return fmt.Errorf("no eval runner at %s: this repo ships no evals", evalEntrypoint)
+		return ConfigErrorf("no eval runner at %s: this repo ships no evals", evalEntrypoint)
 	}
-	if len(agentspec.List(spec.Suites, ".yaml")) == 0 {
-		return fmt.Errorf("no eval suites in %s", spec.Suites)
+	suites := agentspec.List(spec.Suites, ".yaml")
+	if len(suites) == 0 {
+		return ConfigErrorf("no eval suites in %s", spec.Suites)
+	}
+	stems := make([]string, 0, len(suites))
+	for _, path := range suites {
+		stems = append(stems, strings.TrimSuffix(filepath.Base(path), ".yaml"))
+	}
+	if opts.Suite != "" {
+		found := false
+		for _, stem := range stems {
+			found = found || stem == opts.Suite
+		}
+		if !found {
+			return ConfigErrorf("no suite %q in %s (have: %s)", opts.Suite, spec.Suites, strings.Join(stems, ", "))
+		}
+		stems = []string{opts.Suite}
 	}
 
 	python := os.Getenv("DDC_PYTHON")
@@ -84,19 +119,40 @@ func AgentEval(ctx context.Context, cfg Config, opts AgentOptions, out io.Writer
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d/", opts.Port)
 	if err := agentrun.Reachable(opts.Port); err != nil {
-		return fmt.Errorf("%w: start it with `ddc agent up` first", err)
+		return ConfigErrorf("%w: start it with `ddc agent up` first", err)
 	}
 
-	args := []string{runner, "--repo", spec.Repo, "--agent", spec.Name, "--url", url}
-	if opts.Suite != "" {
-		args = append(args, "--suite", opts.Suite)
-	}
-	args = append(args, extraEvalArgs()...)
-	fmt.Fprintf(out, "eval %s via %s\n", spec.Name, evalEntrypoint)
+	extra := extraEvalArgs()
+	codes := make([]int, 0, len(stems))
+	failed := []string{}
+	for _, suite := range stems {
+		args := []string{runner, "--repo", spec.Repo, "--agent", spec.Name, "--url", url, "--suite", suite}
+		if opts.Suite != "" {
+			args = append(args, extra...)
+		} else {
+			args = append(args, suiteOutputArgs(extra, suite)...)
+		}
+		fmt.Fprintf(out, "eval %s/%s via %s\n", spec.Name, suite, evalEntrypoint)
 
-	cmd := exec.CommandContext(ctx, python, args...)
-	cmd.Dir = spec.Repo
-	cmd.Stdout, cmd.Stderr = out, out
-	cmd.Env = append(os.Environ(), "PYTHONPATH="+filepath.Join(spec.Repo, "scripts"))
-	return cmd.Run()
+		cmd := exec.CommandContext(ctx, python, args...)
+		cmd.Dir = spec.Repo
+		cmd.Stdout, cmd.Stderr = out, out
+		cmd.Env = append(os.Environ(), "PYTHONPATH="+filepath.Join(spec.Repo, "scripts"))
+		code := ExitPass
+		if err := cmd.Run(); err != nil {
+			var exitErr *exec.ExitError
+			if !errors.As(err, &exitErr) {
+				return ConfigErrorf("run %s: %w", evalEntrypoint, err)
+			}
+			code = childExitCode(exitErr.ExitCode())
+			failed = append(failed, fmt.Sprintf("%s (exit %d)", suite, exitErr.ExitCode()))
+		}
+		codes = append(codes, code)
+	}
+
+	code := worstExitCode(codes...)
+	if code == ExitPass {
+		return nil
+	}
+	return &ExitError{Code: code, Err: fmt.Errorf("eval failed: %s", strings.Join(failed, ", "))}
 }
