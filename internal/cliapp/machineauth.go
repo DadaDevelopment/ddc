@@ -35,8 +35,7 @@ func MachineCredentialsPresent() bool {
 	if os.Getenv("DDC_TOKEN") != "" {
 		return true
 	}
-	return os.Getenv("DDC_CLIENT_ID_SECRET") != "" ||
-		(os.Getenv("DDC_SERVICE_CLIENT_ID") != "" && os.Getenv("DDC_SERVICE_CLIENT_SECRET") != "")
+	return os.Getenv("DDC_SERVICE_CLIENT_ID") != "" && os.Getenv("DDC_SERVICE_CLIENT_SECRET") != ""
 }
 
 // machineTokenSource returns a token from DDC_TOKEN, or fetches one with the
