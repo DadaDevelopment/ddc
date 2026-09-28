@@ -5,10 +5,17 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/dada-tuda/ddc/internal/agentspec"
 )
+
+// headerEnvRef is a ${VAR} reference inside a header value. The platform
+// resolves the same syntax from the deployed agent's env, so one manifest
+// header ("Bearer ${TOOLS_TOKEN}") works locally and in production while the
+// token stays out of the repo.
+var headerEnvRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // localAgentPy serves one agent from the mounted config dir inside the prod
 // image. It is embedded so `ddc agent up` needs nothing but the binary.
@@ -52,11 +59,25 @@ func resolveTools(spec *agentspec.Spec, opts Options) ([]agentspec.Tool, error) 
 }
 
 // toolHeaders merges literal headers with any carried in an environment
-// variable, so a private MCP server's credentials stay out of the repo.
+// variable, so a private MCP server's credentials stay out of the repo. A
+// ${VAR} inside a literal header is taken from the local environment (or
+// .ddc/.env); an unset one fails loudly, because a local agent without its
+// tool credentials runs toolless and every eval against it is meaningless.
 func toolHeaders(t agentspec.Tool) (map[string]string, error) {
 	headers := map[string]string{}
 	for k, v := range t.Headers {
-		headers[k] = v
+		var missing []string
+		headers[k] = headerEnvRef.ReplaceAllStringFunc(v, func(ref string) string {
+			name := headerEnvRef.FindStringSubmatch(ref)[1]
+			value, ok := os.LookupEnv(name)
+			if !ok || value == "" {
+				missing = append(missing, name)
+			}
+			return value
+		})
+		if len(missing) > 0 {
+			return nil, fmt.Errorf("tool %s header %s needs %s in the environment or .ddc/.env", t.URL, k, strings.Join(missing, ", "))
+		}
 	}
 	if t.HeadersEnv == "" {
 		return headers, nil

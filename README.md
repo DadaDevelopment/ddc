@@ -56,6 +56,13 @@ a model override, or an image pinned away from the platform default:
 Only the *name* of the key variable is stored. Secrets come from the
 environment or `.ddc/.env` (gitignore `.ddc/`).
 
+A tool header refers to its secret the same way, as `${VAR}`:
+`"headers": {"Authorization": "Bearer ${TOOLS_TOKEN}"}`. `ddc agent up` fills
+it from your environment or `.ddc/.env` and refuses to start when it is unset
+(a local agent without its tool credentials answers toolless); `ddc agent
+deploy` sends the header as written and the platform fills it from the
+deployed agent's own env var, so a deploy never drops the credential.
+
 Where the agent is deployed is not in the repo either: it is asked once and
 remembered per directory in your own config, exactly as `ddc deploy` remembers
 an app's project. Two people can run the same repo against different

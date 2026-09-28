@@ -128,6 +128,25 @@ func TestToolHeadersReadEnvironment(t *testing.T) {
 	}
 }
 
+func TestToolHeadersExpandEnvReferences(t *testing.T) {
+	t.Setenv("TOOLS_TOKEN", "abc")
+	tool := agentspec.Tool{URL: "u", Headers: map[string]string{"Authorization": "Bearer ${TOOLS_TOKEN}", "X-Plain": "$1 ${ not a ref"}}
+	headers, err := toolHeaders(tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if headers["Authorization"] != "Bearer abc" || headers["X-Plain"] != "$1 ${ not a ref" {
+		t.Fatalf("headers = %v", headers)
+	}
+	if tool.Headers["Authorization"] != "Bearer ${TOOLS_TOKEN}" {
+		t.Fatal("the manifest's template must stay as written, deploy sends it to the platform")
+	}
+	_, err = toolHeaders(agentspec.Tool{URL: "u", Headers: map[string]string{"Authorization": "Bearer ${UNSET_TOOLS_TOKEN}"}})
+	if err == nil || !strings.Contains(err.Error(), "UNSET_TOOLS_TOKEN") {
+		t.Fatalf("an unset ${VAR} in a header must fail loudly and name the variable, got %v", err)
+	}
+}
+
 // TestWaitHealthyRejectsAnOpenPortThatIsNotTheAgent pins the bug where an open
 // TCP port counted as healthy, so `up` reported success for a container that
 // had already exited. Health is the agent's own /health answering 200.
