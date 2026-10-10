@@ -146,5 +146,12 @@ is used as is. Runner flags go through `DDC_EVAL_ARGS`, for example
 there becomes the parent of the per-suite directories. The exit code is the
 worst suite: 2 if any runner exited 2, else 1 if any missed `--fail-below`.
 
+`--url <address>` points the runner at an agent somewhere else than the local
+`--port`, typically the console agent runtime from an in-cluster CI runner:
+`DDC_EVAL_ARGS="--transport runtime" ddc agent eval --url http://<runtime>:8083`
+evaluates the whole serving path a client sees (runtime, pre-delivery judge,
+procedures, conversation state), not the bare agent. The address must answer
+`/health`.
+
 The eval runner, its cases and the judge live in the agent repo, next to the
 agent they belong to.

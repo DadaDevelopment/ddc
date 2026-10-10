@@ -22,6 +22,7 @@ type AgentOptions struct {
 	Prompt  string
 	MCP     []string
 	Port    int
+	URL     string
 	Text    string
 	Follow  bool
 	Tail    string

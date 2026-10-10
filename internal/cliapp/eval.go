@@ -118,7 +118,12 @@ func AgentEval(ctx context.Context, cfg Config, opts AgentOptions, out io.Writer
 		python = "python3"
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d/", opts.Port)
-	if err := agentrun.Reachable(opts.Port); err != nil {
+	if opts.URL != "" {
+		url = opts.URL
+		if err := agentrun.ReachableURL(url); err != nil {
+			return ConfigErrorf("%w", err)
+		}
+	} else if err := agentrun.Reachable(opts.Port); err != nil {
 		return ConfigErrorf("%w: start it with `ddc agent up` first", err)
 	}
 

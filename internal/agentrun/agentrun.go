@@ -231,6 +231,23 @@ func Up(spec *agentspec.Spec, opts Options, out io.Writer) error {
 // Reachable reports whether an agent is answering its health endpoint on port.
 // Callers use it to fail with "start it first" instead of a connection error
 // from deep inside another tool.
+// ReachableURL checks a remote agent or agent runtime at url, the way
+// Reachable checks the local one: its /health must answer 200. It lets an
+// in-cluster CI runner evaluate the whole serving path (runtime, pre-delivery
+// judge, procedures, state) instead of a bare local agent.
+func ReachableURL(url string) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(strings.TrimRight(url, "/") + "/health")
+	if err != nil {
+		return fmt.Errorf("nothing answering at %s", url)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("%s is not healthy (HTTP %d)", url, resp.StatusCode)
+	}
+	return nil
+}
+
 func Reachable(port int) error {
 	client := &http.Client{Timeout: 3 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))

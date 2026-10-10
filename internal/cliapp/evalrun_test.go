@@ -141,6 +141,29 @@ func TestAgentEvalConfigErrors(t *testing.T) {
 	}
 }
 
+func TestAgentEvalRemoteURL(t *testing.T) {
+	opts, logPath := evalFixture(t, "markers")
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(remote.Close)
+	opts.Port = 1
+	opts.URL = remote.URL
+	opts.Suite = "markers"
+	if err := AgentEval(context.Background(), Config{}, opts, io.Discard); err != nil {
+		t.Fatalf("AgentEval = %v", err)
+	}
+	if got := calls(t, logPath); len(got) != 1 || !strings.Contains(got[0], "--url "+remote.URL+" ") {
+		t.Fatalf("calls = %q, want the runner pointed at the remote url", got)
+	}
+	opts.URL = "http://127.0.0.1:1"
+	if code := ExitCode(AgentEval(context.Background(), Config{}, opts, io.Discard)); code != ExitConfig {
+		t.Errorf("unreachable url: exit %d, want 2", code)
+	}
+}
+
 func TestSuiteOutputArgs(t *testing.T) {
 	cases := []struct {
 		extra []string

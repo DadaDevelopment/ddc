@@ -46,6 +46,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  --prompt <file>     run a different prompt without touching the spec")
 	fmt.Fprintln(os.Stderr, "  --mcp <url>         override the tool servers (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --port <n>          local A2A port (default: 18081)")
+	fmt.Fprintln(os.Stderr, "  --url <address>     eval: a remote agent or agent runtime instead of --port")
 	fmt.Fprintln(os.Stderr, "  --project <name>    deploy target, asked once then remembered")
 	fmt.Fprintln(os.Stderr, "  --env <name>        deploy target environment")
 	fmt.Fprintln(os.Stderr, "  --suite <name>      eval suite to run (default: every suite)")
@@ -156,7 +157,7 @@ func runAgent(ctx context.Context, cfg cliapp.Config, args []string, out io.Writ
 		}
 		switch rest[i] {
 		case "--repo", "--agent", "--prompt", "--mcp", "--port", "--text", "--tail", "--timeout",
-			"--project", "--env", "--suite":
+			"--project", "--env", "--suite", "--url":
 			value, err := needsValue()
 			if err != nil {
 				return err
@@ -186,6 +187,8 @@ func runAgent(ctx context.Context, cfg cliapp.Config, args []string, out io.Writ
 				opts.Env = value
 			case "--suite":
 				opts.Suite = value
+			case "--url":
+				opts.URL = value
 			case "--timeout":
 				seconds, err := strconv.Atoi(value)
 				if err != nil {
